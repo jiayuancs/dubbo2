@@ -76,6 +76,11 @@ import java.util.concurrent.atomic.AtomicLong;
  * and Hierarchical Timing Wheels: data structures to efficiently implement a
  * timer facility'</a>.  More comprehensive slides are located
  * <a href="http://www.cse.wustl.edu/~cdgill/courses/cs6874/TimingWheels.ppt">here</a>.
+ *
+ * 一个单线程的时间轮算法定时器
+ * 这个线程同时负责旋转时间轮指针、执行任务
+ * 因此不要在定时器任务中执行耗时操作，否则可能会导致阻塞整个时间轮的运转，导致后续任务没有按时执行
+ * 耗时操作应交给额外的线程池处理，定时器任务只作为触发器
  */
 public class HashedWheelTimer implements Timer {
 
@@ -92,7 +97,9 @@ public class HashedWheelTimer implements Timer {
     private static final AtomicIntegerFieldUpdater<HashedWheelTimer> WORKER_STATE_UPDATER =
             AtomicIntegerFieldUpdater.newUpdater(HashedWheelTimer.class, "workerState");
 
+    // 具体要执行的任务
     private final Worker worker = new Worker();
+    // 执行任务的线程
     private final Thread workerThread;
 
     private static final int WORKER_STATE_INIT = 0;
@@ -550,6 +557,9 @@ public class HashedWheelTimer implements Timer {
         }
     }
 
+    /**
+     * 时间轮中双向链表节点
+     */
     private static final class HashedWheelTimeout implements Timeout {
 
         private static final int ST_INIT = 0;
@@ -558,28 +568,42 @@ public class HashedWheelTimer implements Timer {
         private static final AtomicIntegerFieldUpdater<HashedWheelTimeout> STATE_UPDATER =
                 AtomicIntegerFieldUpdater.newUpdater(HashedWheelTimeout.class, "state");
 
-        private final HashedWheelTimer timer;
-        private final TimerTask task;
+        private final HashedWheelTimer timer;   // 时间轮
+        private final TimerTask task;           // 实际被调度的任务
+
+        /**
+         * 任务执行的时刻（时间单位为纳秒）
+         * 这个时间是在创建 HashedWheelTimeout 时指定的，计算公式是：
+         * currentTime（创建 HashedWheelTimeout 的时间） + delay（任务延迟时间） - startTime（HashedWheelTimer 的启动时间）
+         * 即相对时间轮启动时的时间
+         */
         private final long deadline;
 
+        /**
+         * 当前任务的状态（ST_INIT、ST_CANCELLED、ST_EXPIRED）
+         * 使用原子操作 STATE_UPDATER 更新该状态值
+         */
         @SuppressWarnings({"unused", "FieldMayBeFinal", "RedundantFieldInitialization"})
         private volatile int state = ST_INIT;
 
         /**
          * RemainingRounds will be calculated and set by Worker.transferTimeoutsToBuckets() before the
          * HashedWheelTimeout will be added to the correct HashedWheelBucket.
+         * 剩余时间轮的圈数数
          */
         long remainingRounds;
 
         /**
          * This will be used to chain timeouts in HashedWheelTimerBucket via a double-linked-list.
          * As only the workerThread will act on it there is no need for synchronization / volatile.
+         * 前驱和后继节点
          */
         HashedWheelTimeout next;
         HashedWheelTimeout prev;
 
         /**
          * The bucket to which the timeout was added
+         * 时间轮中的槽
          */
         HashedWheelBucket bucket;
 
@@ -688,11 +712,13 @@ public class HashedWheelTimer implements Timer {
      * Bucket that stores HashedWheelTimeouts. These are stored in a linked-list like datastructure to allow easy
      * removal of HashedWheelTimeouts in the middle. Also the HashedWheelTimeout act as nodes themself and so no
      * extra object creation is needed.
+     * 时间轮中的一个槽（slot/bucket）
      */
     private static final class HashedWheelBucket {
 
         /**
          * Used for the linked-list datastructure
+         * 该槽对应的双向链表的首尾节点
          */
         private HashedWheelTimeout head;
         private HashedWheelTimeout tail;
@@ -771,6 +797,7 @@ public class HashedWheelTimer implements Timer {
 
         /**
          * Clear this bucket and return all not expired / cancelled {@link Timeout}s.
+         * 将当前槽对应的双向链表中，所有状态为init的任务取下来，放到set集合中
          */
         void clearTimeouts(Set<Timeout> set) {
             for (; ; ) {

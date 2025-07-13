@@ -1,0 +1,2 @@
+org.apache.dubbo.demo.mine.spi.LogServiceImplOne
+org.apache.dubbo.demo.mine.spi.LogServiceImplTwo

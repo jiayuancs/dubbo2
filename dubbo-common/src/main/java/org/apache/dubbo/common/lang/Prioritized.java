@@ -25,6 +25,8 @@ import static java.lang.Integer.compare;
  * should be sorted, for example the tasks in executable queue.
  *
  * @since 2.7.5
+ * 
+ * 优先级排序功能的核心接口
  */
 public interface Prioritized extends Comparable<Prioritized> {
 

@@ -77,18 +77,35 @@ import org.apache.dubbo.common.utils.StringUtils;
  * @see org.apache.dubbo.common.extension.SPI
  * @see org.apache.dubbo.common.extension.Adaptive
  * @see org.apache.dubbo.common.extension.Activate
+ *
+ * 相关概念：
+ * - 扩展接口/扩展点：通过 SPI 机制查找并加载实现的接口，例如 org.apache.dubbo.demo.mine.spi.LogService
+ * - 扩展点实现：实现了扩展接口的实现类，比如 org.apache.dubbo.demo.mine.spi.LogServiceImplOne
  */
 public class ExtensionLoader<T> {
 
     private static final Logger logger = LoggerFactory.getLogger(ExtensionLoader.class);
 
+    /**
+     * @SPI 注解中的 value 字段的分隔符：一个或多个连续的逗号，并且这些逗号的前后可以有任意数量的空白字符
+     * 实际上现在的 Dubbo 并不支持指定多个默认扩展点实现，即 @SPI("dubbo,grpc") 会报错，具体见 cacheDefaultExtensionName() 方法
+     * @see org.apache.dubbo.common.extension.SPI
+     */
     private static final Pattern NAME_SEPARATOR = Pattern.compile("\\s*[,]+\\s*");
 
+    /**
+     * 一个扩展接口对应一个 ExtensionLoader 实例，该集合缓存了全部 ExtensionLoader 实例，
+     * 其中的 Key 为扩展接口（扩展点），Value 为加载其扩展实现的 ExtensionLoader 实例
+     */
     private static final ConcurrentMap<Class<?>, ExtensionLoader<?>> EXTENSION_LOADERS = new ConcurrentHashMap<>(64);
 
+    /**
+     * 该集合缓存了扩展实现类与其实例对象的映射关系。
+     * 其中 Key 为扩展实现类，Value 是其实例化对象
+     */
     private static final ConcurrentMap<Class<?>, Object> EXTENSION_INSTANCES = new ConcurrentHashMap<>(64);
 
-    // 当前 ExtensionLoader 实例负责加载扩展接口
+    // 当前 ExtensionLoader 实例负责加载的扩展接口（扩展点）
     private final Class<?> type;
 
     private final ExtensionFactory objectFactory;
@@ -102,11 +119,14 @@ public class ExtensionLoader<T> {
     private final Map<String, Object> cachedActivates = new ConcurrentHashMap<>();
 
     // 缓存了该 ExtensionLoader 加载的扩展名与扩展实现对象之间的映射关系。
+    // 例如：dubbo -> org.apache.dubbo.rpc.protocol.dubbo.DubboProtocol对象
     private final ConcurrentMap<String, Holder<Object>> cachedInstances = new ConcurrentHashMap<>();
     private final Holder<Object> cachedAdaptiveInstance = new Holder<>();
+    // 缓存了被 @Adaptive 修饰的扩展实现类
     private volatile Class<?> cachedAdaptiveClass = null;
 
     // 记录了 type 这个扩展接口上 @SPI 注解的 value 值，也就是默认扩展名
+    // 比如 @SPI("dubbo"), 默认扩展名就是 dubbo
     private String cachedDefaultName;
 
     private volatile Throwable createAdaptiveInstanceError;
@@ -115,6 +135,10 @@ public class ExtensionLoader<T> {
 
     private Map<String, IllegalStateException> exceptions = new ConcurrentHashMap<>();
 
+    /**
+     * SPI 加载策略
+     *
+     */
     private static volatile LoadingStrategy[] strategies = loadLoadingStrategies();
 
     public static void setLoadingStrategies(LoadingStrategy... strategies) {
@@ -158,6 +182,7 @@ public class ExtensionLoader<T> {
 
     @SuppressWarnings("unchecked")
     public static <T> ExtensionLoader<T> getExtensionLoader(Class<T> type) {
+        // 检查传入的扩展点是否正确，一个扩展点必须是接口且被 @SPI 注解修饰
         if (type == null) {
             throw new IllegalArgumentException("Extension type == null");
         }
@@ -171,7 +196,9 @@ public class ExtensionLoader<T> {
 
         ExtensionLoader<T> loader = (ExtensionLoader<T>) EXTENSION_LOADERS.get(type);
         if (loader == null) {
+            // putIfAbsent 保证了只有一个线程能成功放入实例
             EXTENSION_LOADERS.putIfAbsent(type, new ExtensionLoader<T>(type));
+            // 无论当前线程是否成功放入，都再次 get，保证能获取到 Map 中的唯一实例
             loader = (ExtensionLoader<T>) EXTENSION_LOADERS.get(type);
         }
         return loader;
@@ -420,6 +447,7 @@ public class ExtensionLoader<T> {
     /**
      * Find the extension with the given name. If the specified name is not found, then {@link IllegalStateException}
      * will be thrown.
+     * 根据扩展名获取扩展实现类对象
      */
     @SuppressWarnings("unchecked")
     public T getExtension(String name) {
@@ -474,8 +502,14 @@ public class ExtensionLoader<T> {
         return c != null;
     }
 
+    /**
+     * 获取被 ExtensionLoader 对象能够加载的扩展点名称集合
+     * @return
+     */
     public Set<String> getSupportedExtensions() {
+        // 扩展名 -> 扩展实现类
         Map<String, Class<?>> clazzes = getExtensionClasses();
+        // 返回扩展名集合
         return Collections.unmodifiableSet(new TreeSet<>(clazzes.keySet()));
     }
 
@@ -657,6 +691,8 @@ public class ExtensionLoader<T> {
 
             // 自动装配扩展实现对象中的属性（即调用其 setter）。
             // 这里涉及到 ExtensionFactory 以及自动装配的相关内容，本课时后面会进行详细介绍。
+            // 这里就类似 Spring 中的依赖注入，根据 setter 方法的名称以及参数的类型，
+            // 加载相应的扩展实现，然后调用相应的 setter 方法填充属性
             injectExtension(instance); // --- 3
 
             // 自动包装扩展实现对象。这里涉及到 Wrapper 类以及自动包装特性的相关内容，本课时后面会进行详细介绍。
@@ -701,6 +737,7 @@ public class ExtensionLoader<T> {
                     continue; // 如果参数为简单类型，忽略该setter方法(略)
                 }
 
+                // 实现了扩展点实现类的依赖注入
                 try {
                     // 根据setter方法的名称确定属性名称
                     String property = getSetterProperty(method);
@@ -781,8 +818,11 @@ public class ExtensionLoader<T> {
      * synchronized in getExtensionClasses
      */
     private Map<String, Class<?>> loadExtensionClasses() {
+        // 初始化 cachedDefaultName 成员变量，即默认的扩展点实现名称
         cacheDefaultExtensionName();
 
+        // key 是扩展名，如 dubbo
+        // value 是扩展实现类，如 org.apache.dubbo.rpc.protocol.dubbo.DubboProtocol
         Map<String, Class<?>> extensionClasses = new HashMap<>();
 
         for (LoadingStrategy strategy : strategies) {
@@ -819,6 +859,15 @@ public class ExtensionLoader<T> {
         loadDirectory(extensionClasses, dir, type, false, false);
     }
 
+    /**
+     *
+     * @param extensionClasses 输出参数，key 是扩展名，如 dubbo；value 是扩展实现类，如 org.apache.dubbo.rpc.protocol.dubbo.DubboProtocol
+     * @param dir 要读取的目录, 例如 resources/META-INF/dubbo/internal
+     * @param type 要加载的扩展点接口全路径名，即 dir 目录下的文件名
+     * @param extensionLoaderClassLoaderFirst
+     * @param overridden
+     * @param excludedPackages
+     */
     private void loadDirectory(Map<String, Class<?>> extensionClasses, String dir, String type,
                                boolean extensionLoaderClassLoaderFirst, boolean overridden, String... excludedPackages) {
         String fileName = dir + type;
@@ -914,6 +963,8 @@ public class ExtensionLoader<T> {
         } else if (isWrapperClass(clazz)) { // --1
             // 1.在 isWrapperClass() 方法中，会判断该扩展实现类是否包含拷贝构造函数
             // （即构造函数只有一个参数且为扩展接口类型），如果包含，则为 Wrapper 类，这就是判断 Wrapper 类的标准。
+            // 普通的扩展点实现类有且仅有一个无参的构造函数
+            // 而 Wrapper 类包含一个参数为扩展点类型的构造函数（装饰器模式）
 
             // 2.将 Wrapper 类记录到 cachedWrapperClasses（Set<Class<?>>类型）这个实例字段中进行缓存。
             cacheWrapperClass(clazz); // ---2
@@ -1045,6 +1096,7 @@ public class ExtensionLoader<T> {
     private Class<?> getAdaptiveExtensionClass() {
         // 调用 getExtensionClasses() 方法，
         // 其中就会触发前文介绍的 loadClass() 方法，完成 cachedAdaptiveClass 字段的填充。
+        // 获取实现类的过程中，如果某个实现类被 Adaptive 注解修饰了，那么该类就会被赋值给 cachedAdaptiveClass 变量
         getExtensionClasses();
 
         // 如果存在 @Adaptive 注解修饰的扩展实现类，该类就是适配器类，通过 newInstance() 将其实例化即可。
@@ -1057,9 +1109,15 @@ public class ExtensionLoader<T> {
         return cachedAdaptiveClass = createAdaptiveExtensionClass();
     }
 
+    /**
+     * TODO：待学习，涉及到 javassist 等方面的知识
+     * @return
+     */
     private Class<?> createAdaptiveExtensionClass() {
+        // 生成自适应扩展类的代码
         String code = new AdaptiveClassCodeGenerator(type, cachedDefaultName).generate();
         ClassLoader classLoader = findClassLoader();
+        // 编译
         org.apache.dubbo.common.compiler.Compiler compiler = ExtensionLoader.getExtensionLoader(org.apache.dubbo.common.compiler.Compiler.class).getAdaptiveExtension();
         return compiler.compile(code, classLoader);
     }

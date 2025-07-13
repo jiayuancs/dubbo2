@@ -25,6 +25,8 @@ import java.util.List;
 
 /**
  * Protocol. (API/SPI, Singleton, ThreadSafe)
+ * @SPI 注解标识该接口是 SPI 扩展点
+ * 默认加载名为 dubbo 的扩展点实现，即 dubbo=org.apache.dubbo.rpc.protocol.dubbo.DubboProtocol
  */
 @SPI("dubbo")
 public interface Protocol {

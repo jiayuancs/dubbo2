@@ -20,6 +20,14 @@ package org.apache.dubbo.registry;
 import org.apache.dubbo.common.URL;
 import org.apache.dubbo.common.extension.SPI;
 
+/**
+ * RegistryServiceListener 扩展点用于实现当向注册中心执行 register、unregister、subscribe、unsubscribe 等操作时的回调方法。
+ *
+ * Dubbo 没有提供该扩展点的实现，该扩展点应由用户根据实际需要实现
+ *
+ * @see org.apache.dubbo.registry.ListenerRegistryWrapper
+ * @see org.apache.dubbo.registry.RegistryFactoryWrapper
+ */
 @SPI
 public interface RegistryServiceListener {
     default void onRegister(URL url) {

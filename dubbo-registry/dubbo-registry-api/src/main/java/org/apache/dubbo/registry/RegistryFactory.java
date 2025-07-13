@@ -41,6 +41,9 @@ public interface RegistryFactory {
      *
      * @param url Registry address, is not allowed to be empty
      * @return Registry reference, never return empty value
+     *
+     * 根据 URL 中 "protocol" 参数的值来选择具体的扩展类实现
+     * 如果 "protocol" 参数不存在，则使用 @SPI("dubbo") 指定的默认实现 dubbo
      */
     @Adaptive({"protocol"})
     Registry getRegistry(URL url);

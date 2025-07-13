@@ -24,13 +24,24 @@ import org.apache.dubbo.common.utils.CollectionUtils;
 
 import java.util.List;
 
+/**
+ * 虽然该类以 Wrapper 后缀结尾，但是其并不满足“包含一个参数为扩展点类型的构造函数”条件，
+ * 因此 ExtensionLoader 不会用该类包装其他 Registry 扩展点实现类。
+ *
+ * 实际上该类通过 RegistryFactoryWrapper 被 ExtensionLoader 用于包装其他 Registry 扩展点实现类，以实现监听
+ * register、unregister、subscribe、unsubscribe 等事件
+ * @see org.apache.dubbo.registry.RegistryFactoryWrapper
+ */
 public class ListenerRegistryWrapper implements Registry {
     private static final Logger logger = LoggerFactory.getLogger(ListenerRegistryWrapper.class);
 
     private final Registry registry;
     private final List<RegistryServiceListener> listeners;
 
-
+    /**
+     * @param registry
+     * @param listeners 可为 null，从而不监听事件
+     */
     public ListenerRegistryWrapper(Registry registry, List<RegistryServiceListener> listeners) {
         this.registry = registry;
         this.listeners = listeners;

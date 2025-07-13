@@ -24,6 +24,9 @@ import org.apache.dubbo.common.URL;
  *
  * @see org.apache.dubbo.registry.RegistryFactory#getRegistry(URL)
  * @see org.apache.dubbo.registry.support.AbstractRegistry
+ *
+ * 拥有注册中心能力的节点
+ * 这里的两个 re 开头的方法主要针对 断线重连 场景
  */
 public interface Registry extends Node, RegistryService {
     default void reExportRegister(URL url) {

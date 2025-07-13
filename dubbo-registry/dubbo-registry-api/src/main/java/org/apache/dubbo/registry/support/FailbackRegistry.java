@@ -44,6 +44,10 @@ import static org.apache.dubbo.registry.Constants.REGISTRY_RETRY_PERIOD_KEY;
 
 /**
  * FailbackRegistry. (SPI, Prototype, ThreadSafe)
+ * 覆盖了 AbstractRegistry 中 register()/unregister()、subscribe()/unsubscribe() 以及 notify() 这五个核心方法，
+ * 结合前面介绍的时间轮，实现失败重试的能力；真正与服务发现组件的交互能力则是放到了
+ * doRegister()/doUnregister()、doSubscribe()/doUnsubscribe() 以及 doNotify() 这五个抽象方法中，由具体子类实现。
+ * 这是典型的**模板方法模式**的应用。
  */
 public abstract class FailbackRegistry extends AbstractRegistry {
 
